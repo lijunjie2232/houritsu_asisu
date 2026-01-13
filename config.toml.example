@@ -1,0 +1,55 @@
+# Japanese Law AI Agent - Configuration File
+#
+# This file serves as both the configuration structure and template for required environment variables.
+# For deployment, create a .env file with your actual values, which will replace these placeholders.
+# See README.md for instructions on setting up your environment.
+#
+
+[api]
+api_v1_str = "/api/v1"
+project_name = "Japanese Law AI Agent"
+
+[database]
+# POSTGRES_SERVER: PostgreSQL server address (default: localhost)
+postgres_server = "${POSTGRES_SERVER:-localhost}"
+# POSTGRES_USER: PostgreSQL username (default: postgres)
+postgres_user = "${POSTGRES_USER:-postgres}"
+# POSTGRES_PASSWORD: PostgreSQL password (required - no default provided)
+postgres_password = "${POSTGRES_PASSWORD}"
+# POSTGRES_DB: PostgreSQL database name (default: japaneselaw)
+postgres_db = "${POSTGRES_DB:-japaneselaw}"
+
+[vector_database]
+# MILVUS_HOST: Milvus server address (default: milvus)
+milvus_host = "${MILVUS_HOST:-milvus}"
+# MILVUS_PORT: Milvus server port (default: 19530)
+milvus_port = "${MILVUS_PORT:-19530}"
+# MILVUS_USER: Milvus username (optional)
+milvus_user = "${MILVUS_USER:-}"
+# MILVUS_PASSWORD: Milvus password (optional)
+milvus_password = "${MILVUS_PASSWORD:-}"
+collection_name = "japanese_laws"
+
+[llm]
+# OPENAI_API_KEY: OpenAI API key (required - no default provided)
+openai_api_key = "${OPENAI_API_KEY}"
+model_name = "${MODEL_NAME:-gpt-3.5-turbo}"
+
+[application]
+# DEBUG: Enable debug mode (default: false)
+debug = "${DEBUG:-false}"
+max_history_length = "${MAX_HISTORY_LENGTH:-10}"
+
+# Example .env file contents:
+# POSTGRES_SERVER=localhost
+# POSTGRES_USER=postgres
+# POSTGRES_PASSWORD=your_secure_password_here
+# POSTGRES_DB=japaneselaw
+# MILVUS_HOST=localhost
+# MILVUS_PORT=19530
+# MILVUS_USER=your_milvus_username
+# MILVUS_PASSWORD=your_secure_milvus_password
+# OPENAI_API_KEY=your_openai_api_key_here
+# MODEL_NAME=gpt-3.5-turbo
+# DEBUG=False
+# MAX_HISTORY_LENGTH=10
