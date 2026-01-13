@@ -7,12 +7,8 @@ from app.agents.law_agent import law_agent
 from app.core.config.constants import ERROR_MESSAGES
 from app.core.db.vector_db import vector_db
 from app.models.conversation import Conversation, Message, User
-from app.schemas.chat import (
-    ChatRequest,
-    ChatResponse,
-    ConversationHistory,
-    MessageHistory,
-)
+from app.schemas.chat import (ChatRequest, ChatResponse, ConversationHistory,
+                              MessageHistory)
 
 
 def create_conversation(db: Session, user_id: int, title: str) -> Conversation:

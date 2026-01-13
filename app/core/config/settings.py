@@ -1,76 +1,57 @@
-import os
-
-import tomli  # Need to install tomli for reading TOML files
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-def get_env_var_value(value_str):
-    """
-    Parse a string like '${VAR_NAME:-default}' and return the environment variable value or default
-    """
-    if value_str.startswith("${") and "}" in value_str:
-        # Extract the variable part like VAR_NAME:-default
-        env_part = value_str[2:-1]  # Remove ${ and }
-        if ":-" in env_part:
-            var_name, default_val = env_part.split(":-", 1)
-            return os.getenv(var_name, default_val)
-        else:
-            return os.getenv(env_part, "")
-    return value_str
-
-
-# Ensure config.toml exists by importing the config module
-from . import config  # This triggers the initialization
-
-# Load configuration from config.toml
-config_path = os.path.join(os.path.dirname(__file__), "config.toml")
-with open(config_path, "rb") as f:
-    config_data = tomli.load(f)
+from pathlib import Path
+from shutil import copy
 
 
 class Settings(BaseSettings):
-    # API settings
-    API_V1_STR: str = get_env_var_value(config_data["api"]["api_v1_str"])
-    PROJECT_NAME: str = get_env_var_value(config_data["api"]["project_name"])
 
-    # Database settings
-    POSTGRES_SERVER: str = get_env_var_value(config_data["database"]["postgres_server"])
-    POSTGRES_USER: str = get_env_var_value(config_data["database"]["postgres_user"])
-    POSTGRES_PASSWORD: str = get_env_var_value(
-        config_data["database"]["postgres_password"]
-    )
-    POSTGRES_DB: str = get_env_var_value(config_data["database"]["postgres_db"])
+    # API Configuration
+    API_V1_STR: str = "/api/v1"
+    PROJECT_NAME: str = "Japanese Law AI Agent"
 
-    # Vector database settings
-    MILVUS_HOST: str = get_env_var_value(config_data["vector_database"]["milvus_host"])
-    MILVUS_PORT: int = int(
-        get_env_var_value(config_data["vector_database"]["milvus_port"])
-    )
-    MILVUS_USER: str = get_env_var_value(config_data["vector_database"]["milvus_user"])
-    MILVUS_PASSWORD: str = get_env_var_value(
-        config_data["vector_database"]["milvus_password"]
-    )
-    COLLECTION_NAME: str = get_env_var_value(
-        config_data["vector_database"]["collection_name"]
-    )
+    # Database Configuration
+    POSTGRES_SERVER: str = ""
+    POSTGRES_USER: str = ""
+    POSTGRES_PASSWORD: str = ""
+    POSTGRES_DB: str = ""
 
-    # LLM settings
-    OPENAI_API_KEY: str = get_env_var_value(config_data["llm"]["openai_api_key"])
-    MODEL_NAME: str = get_env_var_value(config_data["llm"]["model_name"])
+    # Vector Database Configuration
+    MILVUS_HOST: str = ""
+    MILVUS_PORT: int = 0
+    MILVUS_USER: str = ""
+    MILVUS_PASSWORD: str = ""
+    COLLECTION_NAME: str = ""
 
-    # Application settings
-    DEBUG: bool = (
-        get_env_var_value(config_data["application"]["debug"]).lower() == "true"
-    )
-    MAX_HISTORY_LENGTH: int = int(
-        get_env_var_value(config_data["application"]["max_history_length"])
-    )
+    # LLM Configuration
+    OPENAI_API_KEY: str = ""
+    MODEL_NAME: str = ""
 
-    model_config = SettingsConfigDict(case_sensitive=True)
+    # Ollama Configuration
+    OLLAMA_IP: str = ""
+    OLLAMA_PORT: int = 0
+    OLLAMA_MODEL: str = ""
 
-    @property
-    def DATABASE_URL(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}/{self.POSTGRES_DB}"
+    # Application Configuration
+    DEBUG: bool = False
+    MAX_HISTORY_LENGTH: int = 0
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
-settings = Settings()
+if not Path(".env").is_file():
+    copy(".env.example", ".env")
+
+env_list = (
+    ".env",
+    ".env.local",
+    ".env.prod",
+    ".env.dev",
+    ".env.test",
+)
+settings = Settings(
+    _env_file=filter(
+        lambda env: Path(env).is_file(),
+        env_list,
+    ),
+    _env_file_encoding="utf-8",
+)

@@ -1,13 +1,7 @@
 from typing import Any, Dict, List, Optional
 
-from pymilvus import (
-    Collection,
-    CollectionSchema,
-    DataType,
-    FieldSchema,
-    connections,
-    utility,
-)
+from pymilvus import (Collection, CollectionSchema, DataType, FieldSchema,
+                      connections, utility)
 
 from app.config.constants import DEFAULT_TOP_K
 from app.config.settings import settings

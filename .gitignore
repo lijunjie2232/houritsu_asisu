@@ -1,7 +1,8 @@
 # Environment variables
 .env
 .env.local
-.env.production
+.env.prod
+.env.dev
 .env.test
 
 # Database
@@ -67,3 +68,7 @@ spider/data
 
 # python pkg
 pkg/
+
+# test code
+tests/
+debug*

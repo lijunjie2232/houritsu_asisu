@@ -5,11 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.core.db.base import get_db
 from app.schemas.chat import ChatRequest, ChatResponse, ConversationHistory
-from app.services.chat_service import (
-    get_conversation_history,
-    get_user_conversations,
-    process_chat_request,
-)
+from app.services.chat_service import (get_conversation_history,
+                                       get_user_conversations,
+                                       process_chat_request)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
