@@ -64,7 +64,7 @@ Thumbs.db
 app/core/config/config.toml
 
 # spider
-spider/data
+spider/data*
 
 # python pkg
 pkg/
