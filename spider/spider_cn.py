@@ -29,44 +29,97 @@ __HEADERS__ = {
 
 __CHUNK_SIZE__ = 1024 * 10
 
-__THREAD_NUM__ = 2
+__THREAD_NUM__ = 1
 
 __PROXY__ = None
 
 
-def init_contents(retry=3):
+def init_contents(path=None, retry=3):
+
     CONTENTS_URL = "https://flk.npc.gov.cn/law-search/highSearch/highSearch"
     data = {
-        "dataList": [
-            {
-                "fieldName": "flfg_code_id",
-                "values": [100, 110, 120, 130, 140, 150, 160, 170, 200, 195],
-                "link": 0,
-                "searchType": 1,
-                "index": 0,
-            }
-        ],
+        "dataList": [],
         "orderByParam": {},
         "pageNum": 1,
-        "pageSize": 1000,
+        "pageSize": 30000,
     }
     BATCH_URL = "https://flk.npc.gov.cn/law-search/download/batch"
 
     try:
-        with httpx.Client(headers=__HEADERS__, proxy=__PROXY__) as client:
-            response = client.post(CONTENTS_URL, json=data)
-            if response.status_code != 200:
-                raise Exception(f"Failed to download contents: {response.status_code}")
-            contents = response.json()
+        with httpx.Client(
+            headers=__HEADERS__,
+            proxy=__PROXY__,
+            timeout=1000,
+        ) as client:
+            contents = None
+            try:
+                with open(path, "r", encoding="utf8") as f:
+                    contents = json.load(f)
+            except:
+                print_exc()
+                pass
+            if not contents:
+                # response = client.post(CONTENTS_URL, json=data)
+                resp_bytes = []
+                total = 0
+
+                with client.stream(
+                    "POST",
+                    CONTENTS_URL,
+                    json=data,
+                    timeout=1000,
+                ) as resp:
+                    resp.raise_for_status()
+                    for chunk in resp.iter_bytes(chunk_size=__CHUNK_SIZE__):
+                        resp_bytes.append(chunk)
+                        total += len(chunk)
+                        logger.info(
+                            f"Fetched {len(chunk)} bytes, total {total/8/1024} KB"
+                        )
+                    contents = json.loads(b"".join(resp_bytes).decode("utf-8"))
             if not contents["code"] == 200:
                 raise Exception("Failed to download contents")
+            if path:
+                with open(path, "w", encoding="utf8") as f:
+                    json.dump(contents, f, ensure_ascii=False)
             logger.info(f"Contents downloaded with msg {contents['msg']}")
-            batch_resp = client.post(
-                BATCH_URL,
-                json=[{"bbbs": c["bbbs"], "format": "docx"} for c in contents["rows"]],
+
+            batch_data = None
+            resp_bytes = []
+            total = 0
+            step = 2000
+            total_part = len(contents["rows"]) // step + int(
+                len(contents["rows"]) % step > 0
             )
-            logger.info(f"Batch meta data fetched with msg {batch_resp.json()['msg']}")
-            return batch_resp.json()["data"]
+
+            for i in range(total_part):
+                with client.stream(
+                    "POST",
+                    BATCH_URL,
+                    json=[
+                        {"bbbs": c["bbbs"], "format": "docx"}
+                        for c in contents["rows"][i * step : (i + 1) * step]
+                    ],
+                    timeout=1000,
+                ) as resp:
+                    resp.raise_for_status()
+                    for chunk in resp.iter_bytes(chunk_size=__CHUNK_SIZE__):
+                        resp_bytes.append(chunk)
+                        total += len(chunk)
+                        logger.info(
+                            f"Part [{i+1}/{total_part}], fetched {len(chunk)} bytes, total {total/8/1024} KB"
+                        )
+                    if not batch_data:
+                        batch_data = json.loads(b"".join(resp_bytes).decode("utf-8"))
+                    else:
+                        _data = json.loads(b"".join(resp_bytes).decode("utf-8"))
+                        batch_data["data"].extend(_data["data"])
+                    resp_bytes = []
+            assert (
+                batch_data and batch_data["code"] == 200
+            ), f"Failed to fetch batch with msg {batch_data['msg']}"
+            logger.info(f"Batch meta data fetched with msg {batch_data['msg']}")
+            return batch_data["data"]
     except Exception as e:
         print_exc()
         return e
@@ -76,7 +129,7 @@ def download_item(args, retry=3):
     client, row, dir = args
     url = row["url"]
     parsed_url = urlparse(url)
-    path_parts = parsed_url.path.split('/')
+    path_parts = parsed_url.path.split("/")
     filename = path_parts[-1]
     file_path = dir / filename
     tmp_path = dir / f"{filename}.tmp"
@@ -107,9 +160,9 @@ def download_item(args, retry=3):
 
 
 def main():
-    contents = init_contents()
+    contents = init_contents(ROOT / "cn_data_full.json")
     assert isinstance(contents, list), contents
-    JSON_DOCUMENTS_DIR = ROOT / "data_cn_partial" / "documents"
+    JSON_DOCUMENTS_DIR = ROOT / "data_cn_full" / "documents"
     JSON_DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # contents (dict) to dataframe and store csv
