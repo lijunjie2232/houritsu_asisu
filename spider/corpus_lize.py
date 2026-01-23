@@ -1,8 +1,14 @@
 import json
 import os
+import stat
+from multiprocessing import Pool
+from pathlib import Path
 from traceback import print_exc
 from typing import Any, Dict, List
-from pathlib import Path
+
+from tqdm import tqdm
+
+__NUM_THREADS__ = 7
 
 
 def extract_all_text_fields(obj, text_list=None) -> List[str]:
@@ -240,22 +246,24 @@ def extract_title(law_data: Dict[str, Any]) -> str:
 def process_supplementary_provision(prov, prov_idx, main_title) -> List[Dict[str, Any]]:
     """Process a single supplementary provision and return list of entries."""
     entries = []
-    
+
     # Get the label for the provision
-    prov_label = prov.get("SupplProvisionLabel", f"Supplementary Provision {prov_idx+1}")
-    
+    prov_label = prov.get(
+        "SupplProvisionLabel", f"Supplementary Provision {prov_idx+1}"
+    )
+
     # Get amendment law number if available
     amend_law_num = prov.get("@AmendLawNum", "")
-    
+
     # Create a base title with more context
     if amend_law_num:
         prov_title = f"{main_title} - {prov_label} ({amend_law_num})"
     else:
         prov_title = f"{main_title} - {prov_label}"
-    
+
     # Process content differently based on structure
     prov_content = ""
-    
+
     # Check if the provision contains articles
     if "Article" in prov:
         articles = prov["Article"]
@@ -267,21 +275,19 @@ def process_supplementary_provision(prov, prov_idx, main_title) -> List[Dict[str
                     entry = {
                         "title": article_title,
                         "text": article_content,
-                        "idx": 0  # Will be updated later
+                        "idx": 0,  # Will be updated later
                     }
                     entries.append(entry)
         else:
             # Single article case
             article_content = process_article(articles)
             if article_content.strip():
-                article_title = f"{prov_title} - {articles.get('ArticleTitle', 'Article')}"
-                entry = {
-                    "title": article_title,
-                    "text": article_content,
-                    "idx": 0
-                }
+                article_title = (
+                    f"{prov_title} - {articles.get('ArticleTitle', 'Article')}"
+                )
+                entry = {"title": article_title, "text": article_content, "idx": 0}
                 entries.append(entry)
-    
+
     # If no articles were found in the provision, process paragraphs
     if not entries:
         if "Paragraph" in prov:
@@ -293,34 +299,22 @@ def process_supplementary_provision(prov, prov_idx, main_title) -> List[Dict[str
                         # Include paragraph number in title if available
                         para_num = para.get("ParagraphNum", para_idx + 1)
                         para_title = f"{prov_title} - Paragraph {para_num}"
-                        entry = {
-                            "title": para_title,
-                            "text": content,
-                            "idx": 0
-                        }
+                        entry = {"title": para_title, "text": content, "idx": 0}
                         entries.append(entry)
             else:
                 content = process_paragraph_content(paragraphs)
                 if content.strip():
                     para_title = f"{prov_title} - Paragraph 1"
-                    entry = {
-                        "title": para_title,
-                        "text": content,
-                        "idx": 0
-                    }
+                    entry = {"title": para_title, "text": content, "idx": 0}
                     entries.append(entry)
-    
+
     # If still no entries, create a general entry for the provision
     if not entries:
         # Extract all text content as fallback
         all_text_fields = extract_all_text_fields(prov)
         prov_content = "\n".join(all_text_fields)
         if prov_content.strip():
-            entry = {
-                "title": prov_title,
-                "text": prov_content,
-                "idx": 0
-            }
+            entry = {"title": prov_title, "text": prov_content, "idx": 0}
             entries.append(entry)
 
     return entries
@@ -328,78 +322,86 @@ def process_supplementary_provision(prov, prov_idx, main_title) -> List[Dict[str
 
 def transform_law_json_to_articles(file_path: str) -> List[Dict[str, Any]]:
     """Transform a single law JSON file to multiple corpus entries, one per article."""
-    with open(file_path, "r", encoding="utf-8") as f:
-        law_data = json.load(f)
+    try:
+        if isinstance(file_path, tuple):
+            file_path = file_path[0]
+        with open(file_path, "r", encoding="utf-8") as f:
+            law_data = json.load(f)
 
-    law = law_data.get("Law", {})
-    
-    # Extract main title
-    main_title = extract_title(law)
-    
-    corpus_entries = []
-    
-    # Process main provision articles
-    if "MainProvision" in law.get("LawBody", {}):
-        main_prov = law["LawBody"]["MainProvision"]
-        if "Article" in main_prov:
-            articles = main_prov["Article"]
-            
-            if isinstance(articles, list):
-                for idx, article in enumerate(articles):
-                    article_content = process_article(article)
-                    if article_content.strip():  # Only add if there's content
-                        article_title = f"{main_title} - {article.get('ArticleTitle', f'Article {idx+1}')}"
+        law = law_data.get("Law", {})
+
+        # Extract main title
+        main_title = extract_title(law)
+
+        corpus_entries = []
+
+        # Process main provision articles
+        if "MainProvision" in law.get("LawBody", {}):
+            main_prov = law["LawBody"]["MainProvision"]
+            if "Article" in main_prov:
+                articles = main_prov["Article"]
+
+                if isinstance(articles, list):
+                    for idx, article in enumerate(articles):
+                        article_content = process_article(article)
+                        if article_content.strip():  # Only add if there's content
+                            article_title = f"{main_title} - {article.get('ArticleTitle', f'Article {idx+1}')}"
+                            entry = {
+                                "title": article_title,
+                                "text": article_content,
+                                "idx": len(
+                                    corpus_entries
+                                ),  # Will be updated when combining
+                            }
+                            corpus_entries.append(entry)
+                else:
+                    # Single article case
+                    article_content = process_article(articles)
+                    if article_content.strip():
+                        article_title = (
+                            f"{main_title} - {articles.get('ArticleTitle', 'Article')}"
+                        )
                         entry = {
                             "title": article_title,
                             "text": article_content,
-                            "idx": len(corpus_entries)  # Will be updated when combining
+                            "idx": len(corpus_entries),
                         }
                         corpus_entries.append(entry)
-            else:
-                # Single article case
-                article_content = process_article(articles)
-                if article_content.strip():
-                    article_title = f"{main_title} - {articles.get('ArticleTitle', 'Article')}"
-                    entry = {
-                        "title": article_title,
-                        "text": article_content,
-                        "idx": len(corpus_entries)
-                    }
+
+        # Process supplementary provisions (these may also contain articles)
+        if "SupplProvision" in law.get("LawBody", {}):
+            suppl_prov = law["LawBody"]["SupplProvision"]
+            provisions = suppl_prov if isinstance(suppl_prov, list) else [suppl_prov]
+
+            for prov_idx, prov in enumerate(provisions):
+                prov_entries = process_supplementary_provision(
+                    prov, prov_idx, main_title
+                )
+                for entry in prov_entries:
+                    entry["idx"] = len(corpus_entries)
                     corpus_entries.append(entry)
-    
-    # Process supplementary provisions (these may also contain articles)
-    if "SupplProvision" in law.get("LawBody", {}):
-        suppl_prov = law["LawBody"]["SupplProvision"]
-        provisions = suppl_prov if isinstance(suppl_prov, list) else [suppl_prov]
-        
-        for prov_idx, prov in enumerate(provisions):
-            prov_entries = process_supplementary_provision(prov, prov_idx, main_title)
-            for entry in prov_entries:
-                entry["idx"] = len(corpus_entries)
-                corpus_entries.append(entry)
 
-    # If no articles were found, create a single entry with all content
-    if not corpus_entries:
-        # Extract ALL #text fields from the entire JSON structure
-        all_text_fields = extract_all_text_fields(law_data)
-        full_text = "\n".join(all_text_fields)
-        
-        if not full_text:
-            full_text = (
-                f"Law: {law.get('LawNum', '')}\n"
-                + f"Era: {law.get('@Era', '')}, "
-                + f"Year: {law.get('@Year', '')}, "
-                + f"Number: {law.get('@Num', '')}"
-            )
-        
-        entry = {
-            "title": main_title,
-            "text": full_text,
-            "idx": 0
-        }
-        corpus_entries.append(entry)
+        # If no articles were found, create a single entry with all content
+        if not corpus_entries:
+            # Extract ALL #text fields from the entire JSON structure
+            all_text_fields = extract_all_text_fields(law_data)
+            full_text = "\n".join(all_text_fields)
 
-    return corpus_entries
+            if not full_text:
+                full_text = (
+                    f"Law: {law.get('LawNum', '')}\n"
+                    + f"Era: {law.get('@Era', '')}, "
+                    + f"Year: {law.get('@Year', '')}, "
+                    + f"Number: {law.get('@Num', '')}"
+                )
+
+            entry = {"title": main_title, "text": full_text, "idx": 0}
+            corpus_entries.append(entry)
+
+        return corpus_entries
+    except Exception as e:
+        print_exc()
+        return e
 
 
 def process_directory(input_dir: Path, output_file: Path):
@@ -408,22 +410,48 @@ def process_directory(input_dir: Path, output_file: Path):
     idx_counter = 0
 
     # Get all JSON files in directory
-    json_files = [f for f in os.listdir(input_dir) if f.endswith(".json")]
+    json_files = list(input_dir.glob("*.json"))
 
-    for filename in json_files:
-        file_path = os.path.join(input_dir, filename)
-        try:
-            entries = transform_law_json_to_articles(file_path)
-            # Update the idx for each entry to be globally unique
+    total = len(json_files)
+
+    # for idx, filename in enumerate(json_files, 1):
+    #     file_path = os.path.join(input_dir, filename)
+    #     try:
+    #         entries = transform_law_json_to_articles(file_path)
+    #         # Update the idx for each entry to be globally unique
+    #         for entry in entries:
+    #             entry["idx"] = idx_counter
+    #             idx_counter += 1
+    #             corpus_list.append(entry)
+    #         print(f"Processed [{idx}:{total}]: {filename} -> {len(entries)} entries")
+    #     except Exception as e:
+    #         print_exc()
+    #         raise e
+    #         print(f"Error processing {filename}: {str(e)}")
+
+    pool = Pool(processes=__NUM_THREADS__)
+    results = pool.imap(
+        transform_law_json_to_articles,
+        json_files,
+    )
+    static_dict = {
+        "pass": 0,
+        "fail": 0,
+        "return": 0,
+        "counts": 0,
+    }
+    loop = tqdm(results, total=total, desc="Processing")
+    for entries in loop:
+        static_dict["return"] += 1
+        if isinstance(entries, list):
             for entry in entries:
                 entry["idx"] = idx_counter
                 idx_counter += 1
+                static_dict["counts"] += 1
                 corpus_list.append(entry)
-            print(f"Processed: {filename} -> {len(entries)} entries")
-        except Exception as e:
-            print_exc()
-            raise e
-            print(f"Error processing {filename}: {str(e)}")
+            static_dict["pass"] += 1
+        else:
+            static_dict["fail"] += 1
 
     # Write to output file
     with open(output_file, "w", encoding="utf-8") as f:
