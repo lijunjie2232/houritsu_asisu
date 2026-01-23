@@ -65,6 +65,9 @@ app/core/config/config.toml
 
 # spider
 spider/data*
+spider/*.json
+spider/*.xml
+spider/*.zip
 
 # python pkg
 pkg/
