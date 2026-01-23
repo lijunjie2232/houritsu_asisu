@@ -237,6 +237,95 @@ def extract_title(law_data: Dict[str, Any]) -> str:
     return full_title.strip()
 
 
+def process_supplementary_provision(prov, prov_idx, main_title) -> List[Dict[str, Any]]:
+    """Process a single supplementary provision and return list of entries."""
+    entries = []
+    
+    # Get the label for the provision
+    prov_label = prov.get("SupplProvisionLabel", f"Supplementary Provision {prov_idx+1}")
+    
+    # Get amendment law number if available
+    amend_law_num = prov.get("@AmendLawNum", "")
+    
+    # Create a base title with more context
+    if amend_law_num:
+        prov_title = f"{main_title} - {prov_label} ({amend_law_num})"
+    else:
+        prov_title = f"{main_title} - {prov_label}"
+    
+    # Process content differently based on structure
+    prov_content = ""
+    
+    # Check if the provision contains articles
+    if "Article" in prov:
+        articles = prov["Article"]
+        if isinstance(articles, list):
+            for article_idx, article in enumerate(articles):
+                article_content = process_article(article)
+                if article_content.strip():
+                    article_title = f"{prov_title} - {article.get('ArticleTitle', f'Article {article_idx+1}')}"
+                    entry = {
+                        "title": article_title,
+                        "text": article_content,
+                        "idx": 0  # Will be updated later
+                    }
+                    entries.append(entry)
+        else:
+            # Single article case
+            article_content = process_article(articles)
+            if article_content.strip():
+                article_title = f"{prov_title} - {articles.get('ArticleTitle', 'Article')}"
+                entry = {
+                    "title": article_title,
+                    "text": article_content,
+                    "idx": 0
+                }
+                entries.append(entry)
+    
+    # If no articles were found in the provision, process paragraphs
+    if not entries:
+        if "Paragraph" in prov:
+            paragraphs = prov["Paragraph"]
+            if isinstance(paragraphs, list):
+                for para_idx, para in enumerate(paragraphs):
+                    content = process_paragraph_content(para)
+                    if content.strip():
+                        # Include paragraph number in title if available
+                        para_num = para.get("ParagraphNum", para_idx + 1)
+                        para_title = f"{prov_title} - Paragraph {para_num}"
+                        entry = {
+                            "title": para_title,
+                            "text": content,
+                            "idx": 0
+                        }
+                        entries.append(entry)
+            else:
+                content = process_paragraph_content(paragraphs)
+                if content.strip():
+                    para_title = f"{prov_title} - Paragraph 1"
+                    entry = {
+                        "title": para_title,
+                        "text": content,
+                        "idx": 0
+                    }
+                    entries.append(entry)
+    
+    # If still no entries, create a general entry for the provision
+    if not entries:
+        # Extract all text content as fallback
+        all_text_fields = extract_all_text_fields(prov)
+        prov_content = "\n".join(all_text_fields)
+        if prov_content.strip():
+            entry = {
+                "title": prov_title,
+                "text": prov_content,
+                "idx": 0
+            }
+            entries.append(entry)
+
+    return entries
+
+
 def transform_law_json_to_articles(file_path: str) -> List[Dict[str, Any]]:
     """Transform a single law JSON file to multiple corpus entries, one per article."""
     with open(file_path, "r", encoding="utf-8") as f:
@@ -284,32 +373,9 @@ def transform_law_json_to_articles(file_path: str) -> List[Dict[str, Any]]:
         provisions = suppl_prov if isinstance(suppl_prov, list) else [suppl_prov]
         
         for prov_idx, prov in enumerate(provisions):
-            prov_content = ""
-            
-            # Get the label for the provision
-            prov_label = prov.get("SupplProvisionLabel", f"Supplementary Provision {prov_idx+1}")
-            
-            # Process paragraphs in the provision
-            if "Paragraph" in prov:
-                paragraphs = prov["Paragraph"]
-                if isinstance(paragraphs, list):
-                    for para in paragraphs:
-                        content = process_paragraph_content(para)
-                        if content:
-                            prov_content += content + "\n\n"
-                else:
-                    content = process_paragraph_content(paragraphs)
-                    if content:
-                        prov_content += content + "\n\n"
-            
-            # Add provision as separate entry if it has content
-            if prov_content.strip():
-                prov_title = f"{main_title} - {prov_label}"
-                entry = {
-                    "title": prov_title,
-                    "text": prov_content.strip(),
-                    "idx": len(corpus_entries)
-                }
+            prov_entries = process_supplementary_provision(prov, prov_idx, main_title)
+            for entry in prov_entries:
+                entry["idx"] = len(corpus_entries)
                 corpus_entries.append(entry)
 
     # If no articles were found, create a single entry with all content
@@ -342,7 +408,7 @@ def process_directory(input_dir: Path, output_file: Path):
     idx_counter = 0
 
     # Get all JSON files in directory
-    json_files = [f for f in os.listdir(input_dir) if f.endswith(".json")][::100]
+    json_files = [f for f in os.listdir(input_dir) if f.endswith(".json")]
 
     for filename in json_files:
         file_path = os.path.join(input_dir, filename)
